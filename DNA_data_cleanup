@@ -1,0 +1,126 @@
+## Metabarcoding processing workflow
+## Filters by pident, calculates relative abundance per sample and primer,
+## collapses duplicates at a practical LCA level,
+## and provides both separate-primer results and an optional merged inventory.
+
+## 1. Install and load packages
+needed <- c("tidyverse", "readr", "stringr")
+to_install <- needed[!needed %in% rownames(installed.packages())]
+if (length(to_install) > 0) install.packages(to_install)
+library(tidyverse)
+library(stringr)
+library(readr)
+
+## 2. Load data
+## Replace this with your actual file location
+file_path <- "metabarcoding_table.csv"
+dat <- read_csv(file_path, show_col_types = FALSE)
+
+## 3. Standardise column names just in case
+## Expected columns from your screenshot:
+## Feature.ID, primer, Sample.ID, Reads, pident, phylum, class, order, family, genus, sscinames
+dat <- dat %>%
+  rename_with(~ str_replace_all(.x, "\\s+", "")) %>%   # remove spaces
+  rename_with(~ str_replace_all(.x, "\\.", ""))       # remove dots
+
+## 4. Basic cleaning of taxonomy strings
+clean_tax <- function(x) {
+  x %>%
+    as.character() %>%
+    str_trim() %>%
+    na_if("") %>%
+    na_if("NA") %>%
+    na_if("nan") %>%
+    na_if("unclassified") %>%
+    na_if("uncultured") %>%
+    na_if("sp.") %>%
+    na_if("sp") 
+}
+
+dat <- dat %>%
+  mutate(
+    sscinames = clean_tax(sscinames),
+    genus     = clean_tax(genus),
+    family    = clean_tax(family),
+    order     = clean_tax(order),
+    class     = clean_tax(class),
+    phylum    = clean_tax(phylum)
+  )
+
+## 5. Filter by identification confidence
+dat_filt <- dat %>%
+  filter(!is.na(pident) & pident >= 97)
+
+## 6. Define a practical LCA label for each row
+## Rule: use most specific available
+dat_filt <- dat_filt %>%
+  mutate(
+    LCA_taxon = case_when(
+      !is.na(sscinames) ~ sscinames,
+      is.na(sscinames) & !is.na(genus)  ~ genus,
+      is.na(sscinames) & is.na(genus) & !is.na(family) ~ family,
+      is.na(sscinames) & is.na(genus) & is.na(family) & !is.na(order) ~ order,
+      is.na(sscinames) & is.na(genus) & is.na(family) & is.na(order) & !is.na(class) ~ class,
+      TRUE ~ phylum
+    )
+  )
+
+## 7. Calculate relative abundance within each Sample.ID and primer
+dat_rel <- dat_filt %>%
+  group_by(SampleID, primer) %>%
+  mutate(total_reads_sp = sum(Reads, na.rm = TRUE)) %>%
+  ungroup() %>%
+  mutate(rel_abund = 100 * Reads / total_reads_sp)
+
+## 8. Collapse duplicates within each Sample.ID and primer at LCA level
+dat_collapsed <- dat_rel %>%
+  group_by(SampleID, primer, LCA_taxon) %>%
+  summarise(
+    Reads_sum = sum(Reads, na.rm = TRUE),
+    rel_abund_sum = sum(rel_abund, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+## 9. Output 1: primer specific relative abundance tables
+write_csv(dat_collapsed, "primer_specific_relative_abundance.csv")
+
+## 10. Output 2: wide format table for easy plotting
+dat_wide <- dat_collapsed %>%
+  pivot_wider(
+    names_from = primer,
+    values_from = rel_abund_sum,
+    values_fill = 0
+  )
+
+write_csv(dat_wide, "primer_specific_relative_abundance_wide.csv")
+
+## 11. Optional merged inventory across primers per sample
+## Use this only if your goal is an overall taxa list, not abundance comparison
+dat_merged_inventory <- dat_collapsed %>%
+  group_by(SampleID, LCA_taxon) %>%
+  summarise(
+    rel_abund_total = sum(rel_abund_sum, na.rm = TRUE),
+    primers_detected = paste(sort(unique(primer)), collapse = ","),
+    .groups = "drop"
+  )
+
+write_csv(dat_merged_inventory, "merged_inventory_across_primers.csv")
+
+## 12. Optional presence absence version across primers
+dat_presence_absence <- dat_collapsed %>%
+  mutate(present = 1) %>%
+  group_by(SampleID, primer, LCA_taxon) %>%
+  summarise(present = max(present), .groups = "drop") %>%
+  pivot_wider(
+    names_from = primer,
+    values_from = present,
+    values_fill = 0
+  )
+
+write_csv(dat_presence_absence, "primer_presence_absence.csv")
+
+## 13. Quick sanity checks printed to console
+cat("\nNumber of rows before filtering:", nrow(dat), "\n")
+cat("Number of rows after pident filter:", nrow(dat_filt), "\n")
+cat("Unique taxa per primer per sample:\n")
+print(dat_collapsed %>% count(SampleID, primer))
