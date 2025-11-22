@@ -1,0 +1,98 @@
+library(tidyverse)
+
+# df is already loaded, so we start from it
+
+# 1. Average both sides (A and B) per rhodolith and timepoint
+df_avg <- df %>%
+  group_by(RhoID, Treatment, Timepoint) %>%
+  summarise(
+    growth = mean(`% green adj`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2. Reshape wide and calculate change (T8 minus T4)
+df_change <- df_avg %>%
+  filter(Timepoint %in% c("T4", "T8")) %>%
+  pivot_wider(
+    names_from = Timepoint,
+    values_from = growth
+  ) %>%
+  mutate(change = T8 - T4) %>%
+  drop_na(change)
+
+# 3. Box and whisker plot
+ggplot(df_change, aes(x = factor(Treatment), y = change, fill = factor(Treatment))) +
+  geom_boxplot(width = 0.6, outlier.shape = NA, alpha = 0.7) +
+  geom_jitter(width = 0.12, size = 2, alpha = 0.9) +
+  stat_summary(fun = mean, geom = "point", shape = 4, size = 4, colour = "black") +
+  labs(
+    x = "Treatment",
+    y = "Growth change (T8 minus T4)"
+  ) +
+  theme_classic() +
+  theme(
+    legend.position = "none",
+    text = element_text(size = 12)
+
+library(tidyverse)
+
+# 1. Calculate mean and SD for each Treatment and Timepoint
+df_summary <- df %>%
+  group_by(Treatment, Timepoint) %>%
+  summarise(
+    mean_growth = mean(`% green adj`, na.rm = TRUE),
+    sd_growth = sd(`% green adj`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2. Bar plot
+ggplot(df_summary,
+       aes(x = factor(Treatment),
+           y = mean_growth,
+           fill = Timepoint)) +
+  geom_col(position = position_dodge(width = 0.8),
+           width = 0.7) +
+  geom_errorbar(aes(ymin = mean_growth - sd_growth,
+                    ymax = mean_growth + sd_growth),
+                position = position_dodge(width = 0.8),
+                width = 0.2) +
+  labs(
+    x = "Treatment",
+    y = "% green adjusted",
+    fill = "Timepoint"
+  ) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 12)
+  )
+library(tidyverse)
+
+# 1. Calculate mean and SD for each Treatment and Timepoint
+df_summary <- df %>%
+  group_by(Treatment, Timepoint) %>%
+  summarise(
+    mean_growth = mean(`% green adj`, na.rm = TRUE),
+    sd_growth = sd(`% green adj`, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# 2. Bar plot
+ggplot(df_summary,
+       aes(x = factor(Treatment),
+           y = mean_growth,
+           fill = Timepoint)) +
+  geom_col(position = position_dodge(width = 0.8),
+           width = 0.7) +
+  geom_errorbar(aes(ymin = mean_growth - sd_growth,
+                    ymax = mean_growth + sd_growth),
+                position = position_dodge(width = 0.8),
+                width = 0.2) +
+  labs(
+    x = "Treatment",
+    y = "% green adjusted",
+    fill = "Timepoint"
+  ) +
+  theme_classic() +
+  theme(
+    text = element_text(size = 12)
+  )
