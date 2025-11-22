@@ -1,0 +1,33 @@
+library(tidyverse)
+
+dat_collapsed <- read_csv("primer_specific_relative_abundance.csv", show_col_types = FALSE)
+
+top_n <- 12
+
+dat_top <- dat_collapsed %>%
+  group_by(primer, LCA_taxon) %>%
+  summarise(mean_abund = mean(rel_abund_sum, na.rm = TRUE), .groups = "drop") %>%
+  group_by(primer) %>%
+  slice_max(mean_abund, n = top_n) %>%
+  mutate(keep = TRUE) %>%
+  select(primer, LCA_taxon, keep)
+
+dat_plot <- dat_collapsed %>%
+  left_join(dat_top, by = c("primer", "LCA_taxon")) %>%
+  mutate(LCA_taxon = ifelse(is.na(keep), "Other", LCA_taxon)) %>%
+  group_by(SampleID, primer, LCA_taxon) %>%
+  summarise(rel_abund_sum = sum(rel_abund_sum), .groups = "drop")
+
+ggplot(dat_plot, aes(x = SampleID, y = rel_abund_sum, fill = LCA_taxon)) +
+  geom_col(width = 0.8) +
+  facet_wrap(~ primer, nrow = 1) +
+  labs(
+    x = "Sample ID",
+    y = "Relative abundance (%)",
+    fill = "Taxon"
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "right"
+  )
