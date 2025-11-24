@@ -1,0 +1,98 @@
+# 0) If needed, set your working directory manually
+# Replace the path below with the folder where algal_cover_results.xlsx lives
+# setwd("C:/Users/ADMIN/OneDrive/Documenten")
+
+# 1) Libraries
+library(tidyverse)
+library(readxl)
+
+# 2) Read data (Excel)
+df <- read_excel("algal_cover_results.xlsx")
+
+# Optional quick check
+# list.files()
+# head(df)
+
+# 3) Extract Treatment (TR1-TR8) and Timepoint (T1-T4) from Image filenames
+df2 <- df %>%
+  mutate(
+    Treatment = str_extract(Image, "TR\\d+"),
+    Timepoint = str_extract(Image, "T\\d+")
+  ) %>%
+  mutate(
+    Treatment = factor(Treatment, levels = paste0("TR", 1:8)),
+    Timepoint = factor(Timepoint, levels = paste0("T", 1:4))
+  )
+
+# 4) Add readable treatment names
+treat_key <- tibble(
+  Treatment = factor(paste0("TR", 1:8), levels = paste0("TR", 1:8)),
+  Treat_name = c(
+    "Control",
+    "Control + F2P",
+    "25°C",
+    "25°C + F2P",
+    "60 µmol",
+    "60 µmol + F2P",
+    "7/17 photoperiod",
+    "7/17 photoperiod + F2P"
+  )
+)
+
+df2 <- df2 %>%
+  left_join(treat_key, by = "Treatment")
+
+# 5) Sanity checks
+glimpse(df2)
+table(df2$Treatment, df2$Timepoint)
+
+# 6) Plot A: raw distributions per treatment, faceted by timepoint
+p1 <- ggplot(df2, aes(x = Treat_name, y = Class2_percent)) +
+  geom_violin(trim = FALSE) +
+  geom_jitter(width = 0.15, height = 0, alpha = 0.7, size = 1.5) +
+  facet_wrap(~Timepoint, nrow = 1) +
+  labs(
+    x = "Treatment",
+    y = "Percent algal cover (Class 2)",
+    title = "Algal cover per treatment across timepoints"
+  ) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+p1
+
+# 7) Plot B: mean trend over time for each treatment (with SD)
+summary_df <- df2 %>%
+  group_by(Treat_name, Timepoint) %>%
+  summarise(
+    mean_cover = mean(Class2_percent, na.rm = TRUE),
+    sd_cover = sd(Class2_percent, na.rm = TRUE),
+    n = n(),
+    .groups = "drop"
+  )
+
+p2 <- ggplot(summary_df, aes(x = Timepoint, y = mean_cover, group = Treat_name, color = Treat_name)) +
+  geom_line() +
+  geom_point(size = 2) +
+  geom_errorbar(
+    aes(ymin = mean_cover - sd_cover, ymax = mean_cover + sd_cover),
+    width = 0.1
+  ) +
+  labs(
+    x = "Timepoint",
+    y = "Mean percent algal cover (Class 2)",
+    title = "Mean algal cover over time per treatment",
+    color = "Treatment"
+  ) +
+  theme_bw() +
+  theme(legend.position = "right")
+
+p2
+
+# 8) Optional: save plots to the same folder
+ggsave("plot_distribution_by_timepoint.tiff", p1, width = 12, height = 4, dpi = 300)
+ggsave("plot_mean_trends.tiff", p2, width = 7, height = 5, dpi = 300)
+
+# 9) Optional: export the cleaned long dataset and summary
+write_csv(df2, "algal_cover_long_cleaned.csv")
+write_csv(summary_df, "algal_cover_summary_means_sd.csv")
