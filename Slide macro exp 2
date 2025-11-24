@@ -1,0 +1,39 @@
+// Choose input folder
+input = getDirectory("Choose input folder");
+output = input + "Measurements/";
+File.makeDirectory(output);
+
+// List files
+list = getFileList(input);
+
+for (i = 0; i < list.length; i++) {
+
+    if (endsWith(list[i], ".tif") || endsWith(list[i], ".tiff")) {
+
+        open(input + list[i]);
+        run("8-bit");
+
+        // Histogram
+        getHistogram(values, counts, 256);
+
+        class2_pixels = counts[2];
+        total_pixels = 0;
+
+        for (j = 0; j < 256; j++) {
+            total_pixels += counts[j];
+        }
+
+        percent_class2 = (class2_pixels / total_pixels) * 100;
+
+        // Append a new row instead of indexing
+        row = nResults;
+        setResult("Image", row, list[i]);
+        setResult("Class2_percent", row, percent_class2);
+        updateResults();
+
+        close();
+    }
+}
+
+// Save output
+saveAs("Results", output + "algal_cover_results.csv");
