@@ -1,0 +1,257 @@
+# Figure 4.15 — Cell cover (%) by treatment and view (Surf vs Xsec)
+# Produces: (1) boxplot with compact letter display, (2) stats tables (descriptives, global test, post hoc)
+
+# ---- Libraries ----
+library(readxl)
+library(dplyr)
+library(ggplot2)
+library(car)
+library(rstatix)
+library(broom)
+library(tibble)
+library(multcompView)
+
+# ---- Input ----
+# Keep paths relative in GitHub. Example:
+# infile <- "data/SEM_file_list_with_hdr_meta_with_coverpct.xlsx"
+infile <- "C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 4/SEM/SEM_file_list_with_hdr_meta_with_coverpct.xlsx"
+
+# ---- Read correct sheet (avoid pivot summaries) ----
+sheets <- readxl::excel_sheets(infile)
+need_cols <- c("treatment", "view_final", "magnification", "cover_pct")
+
+read_candidate_sheet <- function(sheet_name) {
+  x <- readxl::read_xlsx(infile, sheet = sheet_name)
+  nm <- tolower(names(x))
+  if (all(need_cols %in% nm)) return(x)
+  NULL
+}
+
+df <- NULL
+for (sh in sheets) {
+  tmp <- read_candidate_sheet(sh)
+  if (!is.null(tmp)) {
+    df <- tmp
+    message("Using sheet: ", sh)
+    break
+  }
+}
+if (is.null(df)) {
+  stop(
+    paste0(
+      "No sheet contains required columns: ",
+      paste(need_cols, collapse = ", "),
+      "\nSheets found: ", paste(sheets, collapse = ", ")
+    )
+  )
+}
+
+# ---- Create file extension column (Ext) if available, otherwise compute from a file/path column ----
+names_lower <- tolower(names(df))
+
+ext_col_idx <- which(names_lower == "ext")
+ext_col <- if (length(ext_col_idx) >= 1) names(df)[ext_col_idx[1]] else NULL
+
+path_candidates <- c(
+  "file", "filename", "file_name", "filepath", "file_path", "path",
+  "image", "imagefile", "image_file", "fullpath", "full_path"
+)
+path_col_idx <- which(names_lower %in% path_candidates)
+path_col <- if (length(path_col_idx) >= 1) names(df)[path_col_idx[1]] else NULL
+
+if (!is.null(ext_col)) {
+  df <- df %>% mutate(Ext = tolower(as.character(.data[[ext_col]])))
+} else if (!is.null(path_col)) {
+  df <- df %>% mutate(Ext = tolower(tools::file_ext(as.character(.data[[path_col]]))))
+} else {
+  df <- df %>% mutate(Ext = NA_character_)
+  message("No Ext or filename/path column found. Skipping extension filtering.")
+}
+
+# ---- Filter + coerce types ----
+df_filt <- df %>%
+  mutate(
+    View_final = as.character(View_final),
+    Treatment = as.character(Treatment),
+    Magnification = suppressWarnings(as.numeric(as.character(Magnification))),
+    cover_pct = suppressWarnings(as.numeric(as.character(cover_pct)))
+  ) %>%
+  filter(
+    (is.na(Ext) | Ext %in% c("tif", "tiff")),
+    Treatment %in% as.character(1:7),
+    View_final %in% c("Surf", "Xsec"),
+    !is.na(Magnification),
+    Magnification > 1000,
+    Magnification < 2600,
+    !is.na(cover_pct)
+  ) %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = as.character(1:7),
+      labels = c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl")
+    ),
+    View_final = factor(View_final, levels = c("Surf", "Xsec"))
+  )
+
+# ---- Stats (run separately for Surf and Xsec) ----
+run_stats <- function(dat, view_name) {
+  d <- dat %>% filter(View_final == view_name) %>% droplevels()
+
+  descriptives <- d %>%
+    group_by(Treatment) %>%
+    summarise(
+      n = n(),
+      mean = mean(cover_pct),
+      sd = sd(cover_pct),
+      median = median(cover_pct),
+      iqr = IQR(cover_pct),
+      .groups = "drop"
+    )
+
+  aov_mod <- aov(cover_pct ~ Treatment, data = d)
+  shapiro_resid <- shapiro.test(residuals(aov_mod))
+  levene <- car::leveneTest(cover_pct ~ Treatment, data = d)
+
+  normal_ok <- shapiro_resid$p.value > 0.05
+  hom_ok <- levene$`Pr(>F)`[1] > 0.05
+
+  if (normal_ok && hom_ok) {
+    anova_tbl <- broom::tidy(aov_mod)
+
+    tukey_tbl <- as.data.frame(TukeyHSD(aov_mod)$Treatment) %>%
+      tibble::rownames_to_column("comparison") %>%
+      rename(p_adj = `p adj`)
+
+    list(
+      view = view_name,
+      approach = "One-way ANOVA + TukeyHSD",
+      descriptives = descriptives,
+      shapiro_p = shapiro_resid$p.value,
+      levene_p = levene$`Pr(>F)`[1],
+      global_test = anova_tbl,
+      posthoc = tukey_tbl
+    )
+  } else {
+    kw <- kruskal.test(cover_pct ~ Treatment, data = d)
+
+    dunn <- d %>%
+      rstatix::dunn_test(cover_pct ~ Treatment, p.adjust.method = "BH") %>%
+      rename(p_adj = p.adj)
+
+    list(
+      view = view_name,
+      approach = "Kruskal–Wallis + Dunn (BH)",
+      descriptives = descriptives,
+      shapiro_p = shapiro_resid$p.value,
+      levene_p = levene$`Pr(>F)`[1],
+      global_test = broom::tidy(kw),
+      posthoc = dunn
+    )
+  }
+}
+
+res_surf <- run_stats(df_filt, "Surf")
+res_xsec <- run_stats(df_filt, "Xsec")
+
+# Save stats outputs used in thesis
+write.csv(res_surf$descriptives, "Surf_descriptives.csv", row.names = FALSE)
+write.csv(res_xsec$descriptives, "Xsec_descriptives.csv", row.names = FALSE)
+write.csv(res_surf$global_test, "Surf_global_test.csv", row.names = FALSE)
+write.csv(res_xsec$global_test, "Xsec_global_test.csv", row.names = FALSE)
+write.csv(res_surf$posthoc, "Surf_posthoc.csv", row.names = FALSE)
+write.csv(res_xsec$posthoc, "Xsec_posthoc.csv", row.names = FALSE)
+
+# ---- Compact letter display from post hoc ----
+make_letters <- function(posthoc_tbl, treatment_levels, alpha = 0.05) {
+  if (all(c("group1", "group2", "p_adj") %in% names(posthoc_tbl))) {
+    comps <- paste(posthoc_tbl$group1, posthoc_tbl$group2, sep = "-")
+    pvals <- posthoc_tbl$p_adj
+    names(pvals) <- comps
+  } else if (all(c("comparison", "p_adj") %in% names(posthoc_tbl))) {
+    pvals <- posthoc_tbl$p_adj
+    names(pvals) <- posthoc_tbl$comparison
+  } else {
+    stop("Posthoc table format not recognised.")
+  }
+
+  letters_obj <- multcompView::multcompLetters(pvals, threshold = alpha)
+
+  out <- data.frame(
+    Treatment = names(letters_obj$Letters),
+    letters = unname(letters_obj$Letters),
+    stringsAsFactors = FALSE
+  )
+
+  out <- right_join(
+    data.frame(Treatment = treatment_levels, stringsAsFactors = FALSE),
+    out,
+    by = "Treatment"
+  )
+
+  out$letters[is.na(out$letters)] <- ""
+  out
+}
+
+treat_levels <- levels(df_filt$Treatment)
+
+letters_surf <- make_letters(res_surf$posthoc, treatment_levels = treat_levels) %>%
+  mutate(View_final = "Surf")
+
+letters_xsec <- make_letters(res_xsec$posthoc, treatment_levels = treat_levels) %>%
+  mutate(View_final = "Xsec")
+
+# Put all letters on one tidy line at the top
+y_max <- max(df_filt$cover_pct, na.rm = TRUE)
+label_y <- y_max * 1.10
+
+letters_plot_df <- bind_rows(letters_surf, letters_xsec) %>%
+  mutate(
+    View_final = factor(View_final, levels = c("Surf", "Xsec")),
+    y = label_y
+  )
+
+# ---- Plot + save ----
+p <- ggplot(df_filt, aes(x = Treatment, y = cover_pct, fill = View_final)) +
+  geom_boxplot(
+    width = 0.7,
+    position = position_dodge(width = 0.8),
+    outlier.shape = 16,
+    outlier.size = 1.4,
+    linewidth = 0.5
+  ) +
+  geom_text(
+    data = letters_plot_df,
+    aes(x = Treatment, y = y, label = letters, group = View_final),
+    position = position_dodge(width = 0.8),
+    vjust = 0,
+    size = 4,
+    inherit.aes = FALSE
+  ) +
+  labs(
+    x = NULL,
+    y = "Cell cover (%)",
+    fill = NULL
+  ) +
+  expand_limits(y = label_y * 1.02) +
+  theme_classic(base_size = 12) +
+  theme(
+    legend.position = "top",
+    axis.title.y = element_text(size = 12),
+    axis.text = element_text(size = 11, colour = "black"),
+    axis.line = element_line(linewidth = 0.6),
+    axis.ticks = element_line(linewidth = 0.6),
+    plot.title = element_blank(),
+    plot.margin = margin(10, 5.5, 5.5, 5.5)
+  )
+
+print(p)
+
+ggsave(
+  filename = "Figure_4_15_Cell_Cover_Boxplot_with_letters.png",
+  plot = p,
+  width = 180,
+  height = 120,
+  units = "mm",
+  dpi = 600
+)
