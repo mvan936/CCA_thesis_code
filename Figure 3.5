@@ -1,0 +1,111 @@
+# ==========================================
+# Experiment 1: Change in non-coralline cover
+# Figure: boxplot + jitter, faceted by Container
+# Stats: Wilcoxon rank-sum tests (within each container)
+# ==========================================
+
+library(readxl)
+library(dplyr)
+library(stringr)
+library(tidyr)
+library(ggplot2)
+library(rstatix)
+
+# ---- 1) Read + tidy ----
+file_path <- "C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 1/Dead_Alive_for R.xlsx"
+
+dat <- read_excel(file_path) %>%
+  rename(
+    Vitality      = `Vitality class`,
+    non_coralline = `% non-coralline`
+  ) %>%
+  mutate(
+    Filename = as.character(Filename),
+    RhoID    = str_extract(Filename, "^[^-]+"),
+    TimeSide = str_extract(Filename, "(?<=-)[^_]+"),
+    Time     = str_extract(TimeSide, "T[0-9]+"),
+    Side     = str_extract(TimeSide, "[AB]$")
+  )
+
+# ---- 2) Average A & B sides per rhodolith per timepoint ----
+rho_time_means <- dat %>%
+  group_by(RhoID, Vitality, Container, Time) %>%
+  summarise(
+    non_coralline_mean = mean(non_coralline, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# ---- 3) Compute change (T3 - T1) and prep factors ----
+rho_change <- rho_time_means %>%
+  pivot_wider(names_from = Time, values_from = non_coralline_mean) %>%
+  filter(!is.na(T1), !is.na(T3)) %>%
+  mutate(
+    growth_change = T3 - T1,
+    Container = factor(Container, levels = c(1, 2),
+                       labels = c("Container 1", "Container 2")),
+    Vitality  = factor(Vitality, levels = c("Alive", "Mixed", "Dead"))
+  )
+
+# Keep only the combinations shown in your figure
+rho_change_plot <- rho_change %>%
+  filter(
+    (Container == "Container 1" & Vitality %in% c("Alive", "Mixed")) |
+      (Container == "Container 2" & Vitality %in% c("Mixed", "Dead"))
+  ) %>%
+  droplevels()
+
+# ---- 4) Plot (matches attached figure) ----
+p <- ggplot(rho_change_plot, aes(x = Vitality, y = growth_change)) +
+  geom_boxplot(width = 0.6, outlier.shape = NA, colour = "black", fill = "white") +
+  geom_jitter(width = 0.15, size = 2, alpha = 0.7, colour = "black") +
+  facet_wrap(~ Container, scales = "free_x") +
+  labs(
+    x = "Vitality class",
+    y = "Change in non coralline cover (%)"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    strip.background = element_blank(),
+    strip.text       = element_text(size = 12),
+    axis.title       = element_text(size = 12),
+    axis.text        = element_text(size = 10)
+  )
+
+print(p)
+
+ggsave(
+  filename = "C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 1/noncoralline_change_by_container.png",
+  plot     = p,
+  width    = 180,
+  height   = 120,
+  units    = "mm",
+  dpi      = 300
+)
+
+# ---- 5) Statistical analyses ----
+# Within-container comparisons (2 groups each), matching the plotted groups
+
+# Container 1: Alive vs Mixed
+test_c1 <- rho_change_plot %>%
+  filter(Container == "Container 1", Vitality %in% c("Alive", "Mixed")) %>%
+  wilcox_test(growth_change ~ Vitality, exact = FALSE)
+
+# Container 2: Mixed vs Dead
+test_c2 <- rho_change_plot %>%
+  filter(Container == "Container 2", Vitality %in% c("Mixed", "Dead")) %>%
+  wilcox_test(growth_change ~ Vitality, exact = FALSE)
+
+print(test_c1)
+print(test_c2)
+
+# Optional: effect sizes (rank-biserial)
+eff_c1 <- rho_change_plot %>%
+  filter(Container == "Container 1", Vitality %in% c("Alive", "Mixed")) %>%
+  wilcox_effsize(growth_change ~ Vitality)
+
+eff_c2 <- rho_change_plot %>%
+  filter(Container == "Container 2", Vitality %in% c("Mixed", "Dead")) %>%
+  wilcox_effsize(growth_change ~ Vitality)
+
+print(eff_c1)
+print(eff_c2)
