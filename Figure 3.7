@@ -1,0 +1,82 @@
+# ==========================================
+# Exp 1 slides: Algal cover (%) Glass vs Plastic
+# Figure: boxplot + jitter (B&W, APA-ish)
+# Stats: Shapiro per group + Wilcoxon rank-sum + effect size
+# Input: algal_cover_results.csv
+# Output: Algal_cover_slides_boxplot.png
+# ==========================================
+
+library(tidyverse)
+library(rstatix)
+
+# ---- 1) Read data ----
+dat <- read_csv("C:/Ilastik outputs/exp_1_slides/algal_cover_results.csv",
+                show_col_types = FALSE)
+
+# ---- 2) Extract slide ID and define slide type ----
+dat <- dat %>%
+  mutate(
+    Slide = substr(Image, 1, 2),   # expects Image starts with G1/G2/P1/P2
+    Slide_type = case_when(
+      Slide %in% c("G1", "G2") ~ "Glass (G1,G2)",
+      Slide %in% c("P1", "P2") ~ "Plastic (P1,P2)",
+      TRUE ~ NA_character_
+    ),
+    Slide_type = factor(Slide_type,
+                        levels = c("Glass (G1,G2)", "Plastic (P1,P2)"))
+  ) %>%
+  filter(!is.na(Slide_type)) %>%
+  filter(!is.na(Algal_pct))
+
+# ---- 3) Statistical analyses ----
+
+# (a) Normality per group (optional diagnostic)
+normality <- dat %>%
+  group_by(Slide_type) %>%
+  shapiro_test(Algal_pct)
+print(normality)
+
+# (b) Wilcoxon rank-sum test (Glass vs Plastic)
+wilcox <- wilcox_test(dat, Algal_pct ~ Slide_type, exact = FALSE)
+print(wilcox)
+
+# (c) Effect size (rank-biserial)
+effect <- wilcox_effsize(dat, Algal_pct ~ Slide_type)
+print(effect)
+
+# ---- 4) Plot (matches your attached figure style) ----
+p <- ggplot(dat, aes(x = Slide_type, y = Algal_pct)) +
+  geom_boxplot(
+    width = 0.6,
+    outlier.shape = NA,
+    colour = "black",
+    fill = "white",
+    linewidth = 0.6
+  ) +
+  geom_jitter(
+    width = 0.10,
+    alpha = 0.7,
+    size = 2,
+    colour = "black"
+  ) +
+  labs(
+    x = "Slide type",
+    y = "Algal cover (%)"
+  ) +
+  theme_classic(base_size = 12) +
+  theme(
+    axis.text  = element_text(colour = "black"),
+    axis.title = element_text(colour = "black")
+  )
+
+print(p)
+
+# ---- 5) Save figure ----
+ggsave(
+  filename = "C:/Ilastik outputs/exp_1_slides/Algal_cover_slides_boxplot.png",
+  plot = p,
+  width = 180,
+  height = 120,
+  units = "mm",
+  dpi = 300
+)
