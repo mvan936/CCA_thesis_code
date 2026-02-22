@@ -1,0 +1,307 @@
+# EXP4: Change in "% Green adj" from baseline (T0, else T1) to T8, by Treatment
+# Boxplot + individual points
+
+# Packages
+library(readxl)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+# File path (edit this to where your Excel file lives)
+file_path <- "C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 4/Percentages_EXP4.xlsx"
+
+
+# Read the exact sheet and columns from your file
+df <- read_excel(file_path, sheet = "Probability_Percentages_Cropped") %>%
+  mutate(
+    # Pull "base id" (everything before T0/T1/T8) and timepoint from Filename
+    base_id = str_match(Filename, "^(.*)T(0|1|8)_Probabilities\\.tiff$")[, 2],
+    Time    = str_match(Filename, "^(.*)T(0|1|8)_Probabilities\\.tiff$")[, 3],
+    Time    = paste0("T", Time),
+    # Ensure numeric
+    `% Green adj` = as.numeric(`% Green adj`)
+  )
+
+# Make a paired dataset: delta = T8 - baseline, where baseline is T0 if present else T1
+delta_df <- df %>%
+  filter(Time %in% c("T0", "T1", "T8")) %>%
+  group_by(base_id) %>%
+  summarise(
+    Treatment = first(Treatment),   # <- this is your C1 column
+    val_T8 = `% Green adj`[Time == "T8"][1],
+    val_T0 = `% Green adj`[Time == "T0"][1],
+    val_T1 = `% Green adj`[Time == "T1"][1],
+    baseline = ifelse(!is.na(val_T0), val_T0, val_T1),
+    baseline_time = ifelse(!is.na(val_T0), "T0", ifelse(!is.na(val_T1), "T1", NA)),
+    delta = val_T8 - baseline,
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(val_T8), !is.na(baseline)) %>%
+  mutate(
+    Treatment = factor(Treatment, levels = sort(unique(Treatment))),
+    baseline_time = factor(baseline_time, levels = c("T0", "T1"))
+  )
+
+
+# Optional: quick check of how many used T0 vs T1 as baseline
+print(table(delta_df$baseline_time, useNA = "ifany"))
+delta_df <- delta_df %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl")
+    )
+  )
+
+# Plot
+p <- ggplot(delta_df, aes(x = Treatment, y = delta)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, height = 0, alpha = 0.7, size = 2) +
+  labs(
+    x = "Treatment",
+    y = "Change in non coralline cover (%)",
+    title = NULL
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p)
+
+ggsave(
+  filename = "C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 4/Rhodolith_change.png",
+  plot = p,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+
+library(dplyr)
+library(rstatix)
+
+# Shapiro–Wilk normality test per treatment
+normality_test <- delta_df %>%
+  group_by(Treatment) %>%
+  shapiro_test(delta)
+
+print(normality_test)
+
+kruskal_test(delta_df, delta ~ Treatment)
+posthoc <- delta_df %>%
+  dunn_test(delta ~ Treatment, p.adjust.method = "holm") %>%
+  add_significance("p.adj")
+
+print(posthoc)
+print(posthoc, n = Inf)
+
+# EXP4: Change in "% Green adj" from baseline (T0, else T1) to T8, by Treatment
+# Boxplot + individual points
+
+# Packages
+library(readxl)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+# File path (edit this to where your Excel file lives)
+"file_path <- "C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 4/Rhodoliths/Percentages_EXP4.xlsx"
+"
+
+# Read the exact sheet and columns from your file
+df <- read_excel(file_path, sheet = "Probability_Percentages_Cropped") %>%
+  mutate(
+    # Pull "base id" (everything before T0/T1/T8) and timepoint from Filename
+    base_id = str_match(Filename, "^(.*)T(0|1|8)_Probabilities\\.tiff$")[, 2],
+    Time    = str_match(Filename, "^(.*)T(0|1|8)_Probabilities\\.tiff$")[, 3],
+    Time    = paste0("T", Time),
+    # Ensure numeric
+    `% Green adj` = as.numeric(`% Green adj`)
+  )
+
+# Make a paired dataset: delta = T8 - baseline, where baseline is T0 if present else T1
+delta_df <- df %>%
+  filter(Time %in% c("T0", "T1", "T8")) %>%
+  group_by(base_id) %>%
+  summarise(
+    Treatment = first(Treatment),   # <- this is your C1 column
+    val_T8 = `% Green adj`[Time == "T8"][1],
+    val_T0 = `% Green adj`[Time == "T0"][1],
+    val_T1 = `% Green adj`[Time == "T1"][1],
+    baseline = ifelse(!is.na(val_T0), val_T0, val_T1),
+    baseline_time = ifelse(!is.na(val_T0), "T0", ifelse(!is.na(val_T1), "T1", NA)),
+    delta = val_T8 - baseline,
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(val_T8), !is.na(baseline)) %>%
+  mutate(
+    Treatment = factor(Treatment, levels = sort(unique(Treatment))),
+    baseline_time = factor(baseline_time, levels = c("T0", "T1"))
+  )
+
+# Optional: quick check of how many used T0 vs T1 as baseline
+print(table(delta_df$baseline_time, useNA = "ifany"))
+
+delta_df <- delta_df %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl")
+    )
+  )
+
+# ---- ADD: letters from Dunn post hoc (Holm-adjusted) ----
+letters_df <- data.frame(
+  Treatment = factor(
+    c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl"),
+    levels = c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl")
+  ),
+  Letters = c("A", "A", "BC", "AB", "C", "BC", "BC")
+)
+
+# For placing letters above each box:
+# compute a y-position per treatment (max delta + small offset)
+label_pos <- delta_df %>%
+  group_by(Treatment) %>%
+  summarise(
+    y = max(delta, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(y = y + 3) %>%                # vertical offset; adjust if needed
+  left_join(letters_df, by = "Treatment")
+
+# Plot
+p <- ggplot(delta_df, aes(x = Treatment, y = delta)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, height = 0, alpha = 0.7, size = 2) +
+  geom_text(
+    data = label_pos,
+    aes(x = Treatment, y = y, label = Letters),
+    inherit.aes = FALSE,
+    vjust = 0,
+    size = 5
+  ) +
+  labs(
+    x = "Treatment",
+    y = "Change in non coralline cover (%)",
+    title = NULL
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p)
+
+ggsave(
+  filename = "C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 4/Rhodolith_change.png",
+  plot = p,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
+setwd("C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 4/Rhodoliths")
+file_path <- "Percentages_EXP4.xlsx"
+# EXP4: Change in "% Green adj" from baseline (T0, else T1) to T8, by Treatment
+# Boxplot + individual points + post hoc letters
+
+# Set working directory ONCE
+setwd("C:/Users/ADMIN/OneDrive/NT+UOA/CCA 24-25/Experiment 4/Rhodoliths")
+
+# Packages
+library(readxl)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+
+# File name (now relative to working directory)
+file_path <- "Percentages_EXP4.xlsx"
+
+# Read the exact sheet and columns from your file
+df <- read_excel(file_path, sheet = "Probability_Percentages_Cropped") %>%
+  mutate(
+    # Pull "base id" (everything before T0/T1/T8) and timepoint from Filename
+    base_id = str_match(Filename, "^(.*)T(0|1|8)_Probabilities\\.tiff$")[, 2],
+    Time    = str_match(Filename, "^(.*)T(0|1|8)_Probabilities\\.tiff$")[, 3],
+    Time    = paste0("T", Time),
+    # Ensure numeric
+    `% Green adj` = as.numeric(`% Green adj`)
+  )
+
+# Make a paired dataset: delta = T8 - baseline, where baseline is T0 if present else T1
+delta_df <- df %>%
+  filter(Time %in% c("T0", "T1", "T8")) %>%
+  group_by(base_id) %>%
+  summarise(
+    Treatment = first(Treatment),
+    val_T8 = `% Green adj`[Time == "T8"][1],
+    val_T0 = `% Green adj`[Time == "T0"][1],
+    val_T1 = `% Green adj`[Time == "T1"][1],
+    baseline = ifelse(!is.na(val_T0), val_T0, val_T1),
+    baseline_time = ifelse(!is.na(val_T0), "T0",
+                           ifelse(!is.na(val_T1), "T1", NA)),
+    delta = val_T8 - baseline,
+    .groups = "drop"
+  ) %>%
+  filter(!is.na(val_T8), !is.na(baseline)) %>%
+  mutate(
+    Treatment = factor(
+      Treatment,
+      levels = c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl")
+    ),
+    baseline_time = factor(baseline_time, levels = c("T0", "T1"))
+  )
+
+# Optional sanity check
+print(table(delta_df$baseline_time, useNA = "ifany"))
+
+# ---- Post hoc letter groupings (from Holm-adjusted Dunn tests) ----
+letters_df <- data.frame(
+  Treatment = factor(
+    c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl"),
+    levels = c("EDTA", "UV", "FW", "Vinegar", "NaOCl", "Scrub", "Ctrl")
+  ),
+  Letters = c("A", "A", "BC", "AB", "C", "BC", "BC")
+)
+
+# Compute y-position for letters (above max observed delta per treatment)
+label_pos <- delta_df %>%
+  group_by(Treatment) %>%
+  summarise(
+    y = max(delta, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  mutate(y = y + 3) %>%   # vertical offset; adjust if needed
+  left_join(letters_df, by = "Treatment")
+
+# Plot
+p <- ggplot(delta_df, aes(x = Treatment, y = delta)) +
+  geom_boxplot(outlier.shape = NA) +
+  geom_jitter(width = 0.15, height = 0, alpha = 0.7, size = 2) +
+  geom_text(
+    data = label_pos,
+    aes(x = Treatment, y = y, label = Letters),
+    inherit.aes = FALSE,
+    vjust = 0,
+    size = 5
+  ) +
+  labs(
+    x = "Treatment",
+    y = "Change in non coralline cover (%)",
+    title = NULL
+  ) +
+  theme_classic() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1)
+  )
+
+print(p)
+
+# Save figure to working directory
+ggsave(
+  filename = "Rhodolith_change.png",
+  plot = p,
+  width = 10,
+  height = 6,
+  dpi = 300
+)
