@@ -1,0 +1,143 @@
+requires("1.54");
+
+// ----------------------------------------------------
+// FINAL robust ilastik probability batch script
+// - Recursive over subfolders
+// - Safe Windows filenames (no / or \)
+// - Short output path
+// - Binary masks + CSV
+// ----------------------------------------------------
+
+baseDir = getDirectory("Choose TOP folder with ilastik probability TIFFs");
+outDir  = getDirectory("Choose OUTPUT folder (e.g. C:\\SEM_outputs\\)");
+thr     = getNumber("Probability threshold (0 to 1)", 0.5);
+
+// Output paths
+csvPath  = outDir + "percent_cover_ilastik.csv";
+masksDir = outDir + "masks" + File.separator;
+File.makeDirectory(masksDir);
+
+// CSV header
+File.saveString("image_relpath,threshold,cover_pct,mask_file\n", csvPath);
+
+counter = 0;
+
+setBatchMode(true);
+processDir(baseDir);
+setBatchMode(false);
+
+print("Finished successfully");
+print("CSV: " + csvPath);
+print("Masks: " + masksDir);
+
+// ---------------- FUNCTIONS ----------------
+
+function processDir(dir) {
+    list = getFileList(dir);
+    for (i = 0; i < list.length; i++) {
+        name = list[i];
+        fullPath = dir + name;
+
+        if (File.isDirectory(fullPath)) {
+            processDir(fullPath);
+        } else if (isTiff(name)) {
+            processFile(fullPath);
+        }
+    }
+}
+
+function isTiff(name) {
+    return endsWith(name, ".tif") || endsWith(name, ".tiff") ||
+           endsWith(name, ".TIF") || endsWith(name, ".TIFF");
+}
+
+function processFile(path) {
+    open(path);
+    origTitle = getTitle();
+
+    run("Duplicate...", "title=MASK_WORK");
+    selectWindow("MASK_WORK");
+
+    if (bitDepth != 32) run("32-bit");
+
+    setThreshold(thr, 1.0);
+    run("Convert to Mask");
+
+    w = getWidth();
+    h = getHeight();
+    total = w * h;
+
+    getHistogram(values, counts, 256);
+    white = counts[255];
+    cover = (white / total) * 100.0;
+
+    // Build SAFE filename
+    fileOnly = getFileName(path);
+    baseName = stripExtension(fileOnly);
+
+    // Sanitize filename for Windows
+    baseName = replaceAll(baseName, "/", "_");
+    baseName = replaceAll(baseName, "\\", "_");
+
+    counter++;
+    maskName = baseName + "_mask_" + counter + ".tif";
+    maskPath = masksDir + maskName;
+
+    saveAs("Tiff", maskPath);
+
+    close();
+    selectWindow(origTitle);
+    close();
+
+    relPath = replaceAll(path, baseDir, "");
+    File.append(escapeCSV(relPath) + "," + thr + "," + d2s(cover, 6) + "," + escapeCSV(maskName) + "\n", csvPath);
+}
+
+function getFileName(path) {
+    sep = File.separator;
+    idx = lastIndexOf(path, sep);
+    if (idx < 0) return path;
+    return substring(path, idx + 1);
+}
+
+function stripExtension(name) {
+    dot = lastIndexOf(name, ".");
+    if (dot < 0) return name;
+    return substring(name, 0, dot);
+}
+
+function lastIndexOf(str, ch) {
+    for (j = lengthOf(str) - 1; j >= 0; j--) {
+        if (substring(str, j, j + 1) == ch) return j;
+    }
+    return -1;
+}
+
+function replaceAll(str, from, to) {
+    out = "";
+    start = 0;
+    idx = indexOfFrom(str, from, start);
+    while (idx >= 0) {
+        out = out + substring(str, start, idx) + to;
+        start = idx + lengthOf(from);
+        idx = indexOfFrom(str, from, start);
+    }
+    out = out + substring(str, start);
+    return out;
+}
+
+function indexOfFrom(str, find, start) {
+    max = lengthOf(str) - lengthOf(find);
+    for (k = start; k <= max; k++) {
+        if (substring(str, k, k + lengthOf(find)) == find) return k;
+    }
+    return -1;
+}
+
+function escapeCSV(s) {
+    if (indexOfFrom(s, ",", 0) >= 0 || indexOfFrom(s, "\"", 0) >= 0) {
+        s2 = replaceAll(s, "\"", "\"\"");
+        return "\"" + s2 + "\"";
+    }
+    return s;
+}
